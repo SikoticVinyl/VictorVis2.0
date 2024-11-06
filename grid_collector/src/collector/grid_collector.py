@@ -1,7 +1,9 @@
 import os
-from typing import Dict, Optional
+import time
+import logging
 import pandas as pd
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
@@ -13,6 +15,7 @@ class GridCollector:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.rate_limiter = RateLimiter()
+        self.logger = logging.getLogger(__name__)
         
         # Add this to get the absolute path to your project root
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,79 +35,190 @@ class GridCollector:
         return Client(transport=transport, fetch_schema_from_transport=True)
 
     def _load_query(self, filename: str) -> str:
-        """Load a GraphQL query from file using absolute path"""
+        """Load a GraphQL query from file."""
         query_path = os.path.join(self.base_dir, 'queries', f'{filename}.graphql')
-        print(f"Looking for query file at: {query_path}")
-        print(f"File exists: {os.path.exists(query_path)}")
+        self.logger.info(f"Looking for query file at: {query_path}")
         
         try:
             with open(query_path, 'r') as f:
-                return f.read()
+                return f.read().strip()
         except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Query file not found at: {query_path}\n"
-                f"Base directory: {self.base_dir}\n"
-                f"Available files in queries dir: {os.listdir(os.path.join(self.base_dir, 'queries'))}"
-            )
+            raise FileNotFoundError(f"Query file not found at: {query_path}")
 
-    def _paginated_query(self, query: str, variables: Dict, client: Client) -> list:
-        """Execute a paginated query and return all results"""
-        results = []
+    def _execute_query(self, query: str, variables: Dict[str, Any], client: Client) -> Dict[str, Any]:
+        """Execute a single query with rate limiting."""
+        max_retries = 3
+        retry_delay = 5  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Wait for rate limit
+                self.rate_limiter.wait()
+                
+                # Execute query
+                self.logger.debug(f"Executing query (attempt {attempt + 1})")
+                result = client.execute(gql(query), variable_values=variables)
+                
+                return result
+                
+            except Exception as e:
+                if 'ENHANCE_YOUR_CALM' in str(e) or 'rate limit' in str(e).lower():
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (attempt + 1)
+                        self.logger.warning(f"Rate limit hit, waiting {wait_time} seconds before retry")
+                        time.sleep(wait_time)
+                        continue
+                raise handle_api_error(e)
+
+    def _execute_paginated_query(self, query: str, client: Client, variables: Dict = None) -> List[Dict]:
+        """Execute a paginated query and return all nodes."""
+        if variables is None:
+            variables = {}
+            
+        all_nodes = []
         has_next_page = True
         after = None
+        page_number = 1
         
         while has_next_page:
-            self.rate_limiter.wait()
             try:
-                current_vars = {**variables, 'after': after, 'first': 50}
-                result = client.execute(gql(query), variable_values=current_vars)
-                data = list(result.values())[0]
-                results.extend(edge['node'] for edge in data['edges'])
-                page_info = data['pageInfo']
-                has_next_page = page_info['hasNextPage']
-                after = page_info['endCursor'] if has_next_page else None
+                # Update variables for pagination
+                current_vars = {**variables, 'first': 50, 'after': after}
+                
+                # Execute query with rate limiting
+                result = self._execute_query(query, current_vars, client)
+                
+                # Get the correct data key (first key in result)
+                data_key = next(key for key in result.keys() if key != '__typename')
+                data = result[data_key]
+                
+                # Extract edges and nodes
+                edges = data.get('edges', [])
+                for edge in edges:
+                    if 'node' in edge:
+                        all_nodes.append(edge['node'])
+                
+                # Update pagination info
+                page_info = data.get('pageInfo', {})
+                has_next_page = page_info.get('hasNextPage', False)
+                after = page_info.get('endCursor') if has_next_page else None
+                
+                # Log progress
+                self.logger.info(f"Processed page {page_number} - Got {len(edges)} items")
+                page_number += 1
+                
+                # Add a small delay between pages to help prevent rate limiting
+                if has_next_page:
+                    time.sleep(0.5)
+                    
             except Exception as e:
-                raise handle_api_error(e)
-        return results
+                self.logger.error(f"Error during pagination on page {page_number}: {str(e)}")
+                raise
+                
+        return all_nodes
 
-    def get_matches(self, days: int = 7) -> pd.DataFrame:
-        """Get recent matches"""
-        query = self._load_query('matches')
-        
-        start_date = (datetime.now() - timedelta(days=days)).isoformat()
-        end_date = datetime.now().isoformat()
+    def get_tournaments(self) -> pd.DataFrame:
+        """Get all tournaments."""
+        query = self._load_query('tournaments')
         
         try:
-            self.rate_limiter.wait()
-            result = self.central_client.execute(
-                gql(query),
-                variable_values={
-                    'startDate': start_date,
-                    'endDate': end_date,
-                    'first': 50
+            # Get all tournament nodes
+            tournaments = self._execute_paginated_query(query, self.central_client)
+            
+            # Process tournaments into a list of dictionaries
+            processed_tournaments = []
+            for tournament in tournaments:
+                # Extract title information
+                titles = tournament.get('titles', [])
+                title_ids = [t.get('id') for t in titles]
+                title_names = [t.get('name') for t in titles]
+                
+                # Create tournament record
+                tournament_data = {
+                    'id': tournament.get('id'),
+                    'name': tournament.get('name'),
+                    'name_short': tournament.get('nameShortened'),
+                    'start_date': tournament.get('startDate'),
+                    'end_date': tournament.get('endDate'),
+                    'private': tournament.get('private', False),
+                    'title_ids': title_ids,
+                    'title_names': title_names
                 }
-            )
+                processed_tournaments.append(tournament_data)
             
-            matches = []
-            for edge in result['allSeries']['edges']:
-                match = edge['node']
-                if len(match['teams']) >= 2:
-                    matches.append(Match(
-                        id=match['id'],
-                        start_time=datetime.fromisoformat(match['startTimeScheduled']),
-                        tournament_name=match['tournament']['name'],
-                        team1_id=match['teams'][0]['baseInfo']['id'],
-                        team1_name=match['teams'][0]['baseInfo']['name'],
-                        team2_id=match['teams'][1]['baseInfo']['id'],
-                        team2_name=match['teams'][1]['baseInfo']['name'],
-                        team1_score=match['teams'][0]['scoreAdvantage'],
-                        team2_score=match['teams'][1]['scoreAdvantage']
-                    ))
+            # Convert to DataFrame
+            df = pd.DataFrame(processed_tournaments)
             
-            return pd.DataFrame([vars(m) for m in matches])
+            # Convert dates
+            for date_col in ['start_date', 'end_date']:
+                if date_col in df.columns:
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+                    
+            return df
             
         except Exception as e:
-            raise handle_api_error(e)
+            self.logger.error(f"Error collecting tournament data: {str(e)}")
+            raise
+
+    def get_matches(self, days: int = 7) -> pd.DataFrame:
+        """
+        Get recent matches based on the series data from the API
+    
+        Args:
+            days (int): Number of days of match history to collect
+        
+        Returns:
+            pd.DataFrame: DataFrame containing match information
+        """
+        query = self._load_query('matches')
+    
+        start_date = (datetime.now() - timedelta(days=days)).isoformat()
+        end_date = datetime.now().isoformat()
+    
+        variables = {
+            'startDate': start_date,
+            'endDate': end_date,
+            'first': 50
+        }
+    
+        try:
+            matches = self._execute_paginated_query(query, self.central_client, variables)
+            processed_matches = []
+        
+            for match in matches:
+                if len(match.get('teams', [])) >= 2:
+                    match_data = {
+                        'id': match['id'],
+                        'series_title': match.get('title', {}).get('nameShortened'),
+                        'tournament_name': match.get('tournament', {}).get('nameShortened'),
+                        'start_time': match['startTimeScheduled'],
+                        'format_name': match.get('format', {}).get('name'),
+                        'format_short': match.get('format', {}).get('nameShortened'),
+                    
+                        # Team 1 information
+                        'team1_id': match['teams'][0]['baseInfo'].get('id'),
+                        'team1_name': match['teams'][0]['baseInfo'].get('name'),
+                        'team1_score_advantage': match['teams'][0].get('scoreAdvantage'),
+                    
+                        # Team 2 information
+                        'team2_id': match['teams'][1]['baseInfo'].get('id'),
+                        'team2_name': match['teams'][1]['baseInfo'].get('name'),
+                        'team2_score_advantage': match['teams'][1].get('scoreAdvantage')
+                    }
+                    processed_matches.append(match_data)
+        
+            # Convert to DataFrame
+            df = pd.DataFrame(processed_matches)
+        
+            # Convert datetime columns
+            if 'start_time' in df.columns:
+                df['start_time'] = pd.to_datetime(df['start_time'])
+        
+            return df
+        
+        except Exception as e:
+            self.logger.error(f"Error collecting match data: {str(e)}")
+            raise
 
     def get_player_stats(self, player_id: str, time_window: str = 'LAST_3_MONTHS') -> pd.DataFrame:
         """Get player statistics"""
@@ -123,24 +237,6 @@ class GridCollector:
         except Exception as e:
             raise handle_api_error(e)
         
-    def get_tournaments(self) -> pd.DataFrame:
-        """Get all tournaments"""
-        query = self._load_query('tournaments')
-        results = []
-        
-        try:
-            for edge in self._paginated_query(query, {}, self.central_client):
-                tournament = edge['node']
-                results.append({
-                    'id': tournament['id'],
-                    'name': tournament['name'],
-                    'name_short': tournament['nameShortened']
-                })
-            
-            return pd.DataFrame(results)
-        except Exception as e:
-            raise handle_api_error(e)
-
     def get_team_roster(self, team_id: str) -> pd.DataFrame:
         """Get roster for a specific team"""
         query = self._load_query('players')

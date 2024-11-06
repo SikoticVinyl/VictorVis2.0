@@ -1,4 +1,4 @@
-query GetRecentMatches($first: Int!, $after: Cursor, $startDate: DateTime!, $endDate: DateTime!) {
+query GetRecentMatches($first: Int!, $after: Cursor, $startDate: String!, $endDate: String!) {
     allSeries(
         first: $first
         after: $after
@@ -8,21 +8,29 @@ query GetRecentMatches($first: Int!, $after: Cursor, $startDate: DateTime!, $end
                 lte: $endDate
             }
         }
+        orderBy: StartTimeScheduled
     ) {
         edges {
             node {
                 id
+                title {
+                    nameShortened
+                }
                 tournament {
-                    id
+                    nameShortened
+                }
+                startTimeScheduled
+                format {
                     name
+                    nameShortened
                 }
                 teams {
                     baseInfo {
                         id
                         name
                     }
+                    scoreAdvantage
                 }
-                startTimeScheduled
             }
             cursor
         }
