@@ -1,15 +1,22 @@
-query GetTeamRoster($teamId: ID!) {
-    team(id: $teamId) {
+query GetAllPlayers($first: Int!, $after: Cursor) {
+  players(first: $first, after: $after) {
+    edges {
+      node {
         id
-        name
-        players: roster {
-            id
-            nickname
-            title {
-                id
-                name
-            }
-            private
+        nickname
+        title {
+          name
         }
+        team {
+          id
+          name
+        }
+        private
+      }
     }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
 }

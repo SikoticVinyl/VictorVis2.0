@@ -8,7 +8,6 @@ from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
 from ..utils import RateLimiter, GridAPIError, handle_api_error
-from ..models import Player, Match
 from .base import BaseCollector
 
 class GridCollector:
@@ -231,3 +230,48 @@ class GridCollector:
         except Exception as e:
             self.logger.error(f"Error collecting match data: {str(e)}")
             raise
+
+    def get_players(self) -> pd.DataFrame:
+        """Get all players with specified fields."""
+        query = self._load_query('players')
+        variables = {}
+
+        try:
+            # Get all player nodes
+            players = self._execute_paginated_query(query, self.central_client, variables)
+            
+            # Process players into a list of dictionaries
+            processed_players = []
+            for player in players:
+                player_data = {
+                    'id': player.get('id'),
+                    'nickname': player.get('nickname'),
+                    'title': player.get('title', {}).get('name'),
+                    'team_id': player.get('team', {}).get('id') if player.get('team') else None,
+                    'team_name': player.get('team', {}).get('name') if player.get('team') else None,
+                    'private': player.get('private', False)
+                }
+                processed_players.append(player_data)
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(processed_players)
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting player data: {str(e)}")
+            raise
+    
+    def get_player_statistics(self, player_id: str, time_window: str = 'LAST_3_MONTHS') -> Dict[str, Any]:
+        """Get statistics for a player using the updated query."""
+        query = self._load_query('player_statistics')
+        variables = {
+            'playerId': player_id,
+            'filter': {'timeWindow': time_window}
+        }
+
+        try:
+            result = self._execute_query(query, variables, self.stats_client)
+            return result['playerStatistics']
+        except Exception as e:
+            self.logger.error(f"Error collecting statistics for player {player_id}: {str(e)}")
+            return None  # Return None if there's an error to handle it gracefully
