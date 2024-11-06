@@ -161,9 +161,8 @@ class GridCollector:
             raise
 
     def get_matches(self, days: int = 7) -> pd.DataFrame:
-        """
-        Get recent matches based on the series data from the API
-    
+        """Get recent matches based on the series data from the API
+
         Args:
             days (int): Number of days of match history to collect
         
@@ -172,17 +171,30 @@ class GridCollector:
         """
         query = self._load_query('matches')
     
-        start_date = (datetime.now() - timedelta(days=days)).isoformat()
-        end_date = datetime.now().isoformat()
+        # Calculate date range and format in the exact format the API expects
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+    
+        # Format dates exactly like the API example
+        formatted_start = start_date.strftime('%Y-%m-%dT%H:00:00+00:00')
+        formatted_end = end_date.strftime('%Y-%m-%dT%H:00:00+00:00')
+    
+        # Replace the date placeholders in the query
+        modified_query = query.replace(
+            '"2024-10-30T14:00:00+00:00"',
+            f'"{formatted_start}"'
+        ).replace(
+            '"2024-11-06T14:00:00+00:00"',
+            f'"{formatted_end}"'
+        )
     
         variables = {
-            'startDate': start_date,
-            'endDate': end_date,
-            'first': 50
+            'first': 50,
+            'after': None
         }
     
         try:
-            matches = self._execute_paginated_query(query, self.central_client, variables)
+            matches = self._execute_paginated_query(modified_query, self.central_client, variables)
             processed_matches = []
         
             for match in matches:
@@ -213,7 +225,7 @@ class GridCollector:
             # Convert datetime columns
             if 'start_time' in df.columns:
                 df['start_time'] = pd.to_datetime(df['start_time'])
-        
+            
             return df
         
         except Exception as e:
