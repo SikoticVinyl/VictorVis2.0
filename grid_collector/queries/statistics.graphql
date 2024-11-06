@@ -1,0 +1,40 @@
+query PlayerStatistics($playerId: ID!, $timeWindow: TimeWindow!) {
+    playerStatistics(
+        playerId: $playerId,
+        filter: {timeWindow: $timeWindow}
+    ) {
+        id
+        series {
+            count
+            kills {
+                sum
+                min
+                max
+                avg
+            }
+        }
+        game {
+            count
+            wins {
+                value
+                count
+                percentage
+                streak {
+                    min
+                    max
+                    current
+                }
+            }
+        }
+        segment {
+            type
+            count
+            deaths {
+                sum
+                min
+                max
+                avg
+            }
+        }
+    }
+}

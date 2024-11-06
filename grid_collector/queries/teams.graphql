@@ -1,0 +1,28 @@
+query GetTeams($first: Int!, $after: String) {
+    teams(
+        first: $first
+        after: $after
+    ) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                id
+                name
+                colorPrimary
+                colorSecondary
+                logoUrl
+                externalLinks {
+                    dataProvider {
+                        name
+                    }
+                    externalEntity {
+                        id
+                    }
+                }
+            }
+        }
+    }
+}
