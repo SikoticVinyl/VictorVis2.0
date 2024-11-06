@@ -1,10 +1,11 @@
-query GetAllPlayers($first: Int!, $after: Cursor) {
-  players(first: $first, after: $after) {
+query GetAllPlayers($first: Int!, $after: Cursor, $filter: PlayerFilter) {
+  players(first: $first, after: $after, filter: $filter) {
     edges {
       node {
         id
         nickname
         title {
+          id
           name
         }
         team {

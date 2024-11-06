@@ -69,52 +69,58 @@ class GridCollector:
                         continue
                 raise handle_api_error(e)
 
-    def _execute_paginated_query(self, query: str, client: Client, variables: Dict = None) -> List[Dict]:
-        """Execute a paginated query and return all nodes."""
+    def _execute_paginated_query(self, query: str, client: Client, variables: Dict = None, limit: int = None) -> List[Dict]:
+        """Execute a paginated query and return all nodes, stopping when limit is reached."""
         if variables is None:
             variables = {}
-            
+        
         all_nodes = []
         has_next_page = True
         after = None
         page_number = 1
-        
+    
         while has_next_page:
             try:
                 # Update variables for pagination
                 current_vars = {**variables, 'first': 50, 'after': after}
-                
+            
                 # Execute query with rate limiting
                 result = self._execute_query(query, current_vars, client)
-                
+            
                 # Get the correct data key (first key in result)
                 data_key = next(key for key in result.keys() if key != '__typename')
                 data = result[data_key]
-                
+            
                 # Extract edges and nodes
                 edges = data.get('edges', [])
                 for edge in edges:
                     if 'node' in edge:
                         all_nodes.append(edge['node'])
-                
-                # Update pagination info
+                    
+                        # Check if limit is reached
+                        if limit is not None and len(all_nodes) >= limit:
+                            self.logger.info(f"Limit of {limit} items reached.")
+                            return all_nodes[:limit]
+            
+               # Update pagination info
                 page_info = data.get('pageInfo', {})
                 has_next_page = page_info.get('hasNextPage', False)
                 after = page_info.get('endCursor') if has_next_page else None
-                
+            
                 # Log progress
                 self.logger.info(f"Processed page {page_number} - Got {len(edges)} items")
                 page_number += 1
-                
+            
                 # Add a small delay between pages to help prevent rate limiting
                 if has_next_page:
                     time.sleep(0.5)
-                    
+                
             except Exception as e:
                 self.logger.error(f"Error during pagination on page {page_number}: {str(e)}")
                 raise
                 
         return all_nodes
+
 
     def get_tournaments(self) -> pd.DataFrame:
         """Get all tournaments."""
@@ -230,16 +236,42 @@ class GridCollector:
         except Exception as e:
             self.logger.error(f"Error collecting match data: {str(e)}")
             raise
+    
+    def get_all_titles(self) -> pd.DataFrame:
+        """Fetch all available titles and return as a DataFrame."""
+        query = self._load_query('titles')
+        variables = {}  # No filter, fetch all titles
+        try:
+            result = self._execute_query(query, variables, self.central_client)
+            titles = result.get('titles', [])
+            # Process titles into a list of dictionaries
+            processed_titles = []
+            for title in titles:
+                title_data = {
+                    'id': title.get('id'),
+                    'name': title.get('name'),
+                    'name_shortened': title.get('nameShortened'),
+                    'private': title.get('private')
+                }
+                processed_titles.append(title_data)
+            # Convert to DataFrame
+            df = pd.DataFrame(processed_titles)
+            return df
+        except Exception as e:
+            self.logger.error(f"Error fetching titles: {str(e)}")
+            return pd.DataFrame()
 
-    def get_players(self) -> pd.DataFrame:
-        """Get all players with specified fields."""
+    def get_players(self, limit: int = None, title_id: str = '28') -> pd.DataFrame:
+        """Get players with specified fields, optionally limiting the number of players fetched."""
         query = self._load_query('players')
         variables = {}
+        if title_id:
+            variables['filter'] = {'titleId': title_id}
 
         try:
-            # Get all player nodes
-            players = self._execute_paginated_query(query, self.central_client, variables)
-            
+            # Get all player nodes, with optional limit
+            players = self._execute_paginated_query(query, self.central_client, variables, limit=limit)
+
             # Process players into a list of dictionaries
             processed_players = []
             for player in players:
@@ -252,17 +284,17 @@ class GridCollector:
                     'private': player.get('private', False)
                 }
                 processed_players.append(player_data)
-            
+
             # Convert to DataFrame
             df = pd.DataFrame(processed_players)
             return df
-            
+
         except Exception as e:
             self.logger.error(f"Error collecting player data: {str(e)}")
             raise
     
-    def get_player_statistics(self, player_id: str, time_window: str = 'LAST_3_MONTHS') -> Dict[str, Any]:
-        """Get statistics for a player using the updated query."""
+    def get_player_statistics(self, player_id: str, time_window: str = 'LAST_YEAR') -> Dict[str, Any]:
+        """Get statistics for a player, including CS:GO-specific statistics."""
         query = self._load_query('player_statistics')
         variables = {
             'playerId': player_id,
