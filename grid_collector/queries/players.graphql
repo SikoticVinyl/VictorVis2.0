@@ -1,58 +1,15 @@
-# queries/matches.graphql
-query GetRecentMatches($first: Int!, $after: String, $startDate: DateTime!, $endDate: DateTime!) {
-    allSeries(
-        first: $first
-        after: $after
-        filter: {
-            startTimeScheduled: {
-                gte: $startDate
-                lte: $endDate
-            }
-        }
-        orderBy: StartTimeScheduled
-    ) {
-        pageInfo {
-            hasNextPage
-            endCursor
-        }
-        edges {
-            node {
+query GetTeamRoster($teamId: ID!) {
+    team(id: $teamId) {
+        id
+        name
+        players: roster {
+            id
+            nickname
+            title {
                 id
-                startTimeScheduled
-                tournament {
-                    name
-                }
-                teams {
-                    baseInfo {
-                        id
-                        name
-                    }
-                    scoreAdvantage
-                }
+                name
             }
-        }
-    }
-}
-
-# queries/players.graphql
-query GetTeamRoster($teamId: ID!, $first: Int!, $after: String) {
-    players(
-        first: $first
-        after: $after
-        filter: {teamIdFilter: {id: $teamId}}
-    ) {
-        pageInfo {
-            hasNextPage
-            endCursor
-        }
-        edges {
-            node {
-                id
-                nickname
-                title {
-                    name
-                }
-            }
+            private
         }
     }
 }

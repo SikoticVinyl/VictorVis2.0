@@ -1,6 +1,6 @@
-query GetTournaments($first: Int!, $after: String) {
+query GetTournaments($first: Int!, $after: Cursor) {
     tournaments(
-        first: $first
+        first: $first,
         after: $after
     ) {
         pageInfo {
@@ -8,11 +8,20 @@ query GetTournaments($first: Int!, $after: String) {
             endCursor
         }
         edges {
+            cursor
             node {
                 id
                 name
                 nameShortened
+                startDate
+                endDate
+                private
+                titles {
+                    id
+                    name
+                }
             }
         }
+        totalCount
     }
 }
