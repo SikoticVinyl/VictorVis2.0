@@ -3,7 +3,7 @@ import time
 import logging
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Union, Dict, List, Optional, Any
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
@@ -292,18 +292,226 @@ class GridCollector:
         except Exception as e:
             self.logger.error(f"Error collecting player data: {str(e)}")
             raise
-    
-    def get_player_statistics(self, player_id: str, time_window: str = 'LAST_YEAR') -> Dict[str, Any]:
-        """Get statistics for a player, including CS:GO-specific statistics."""
-        query = self._load_query('player_statistics')
-        variables = {
-            'playerId': player_id,
-            'filter': {'timeWindow': time_window}
-        }
 
+
+    def get_team_statistics(
+        self,
+        team_id: str,
+        time_window: Optional[str] = "LAST_3_MONTHS",
+        tournament_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive team statistics either by time window or tournament IDs.
+        
+        Args:
+            team_id (str): The ID of the team
+            time_window (str, optional): Time window for statistics (e.g., "LAST_3_MONTHS")
+            tournament_ids (List[str], optional): List of tournament IDs to filter by
+            
+        Returns:
+            Dict containing processed team statistics
+        """
+        query = self._load_query('team_statistics')
+        
+        # Build filter based on provided parameters
+        filter_dict = {}
+        if tournament_ids:
+            filter_dict['tournamentIds'] = {'in': tournament_ids}
+        elif time_window:
+            filter_dict['timeWindow'] = time_window
+            
+        variables = {
+            'teamId': team_id,
+            'filter': filter_dict
+        }
+        
         try:
             result = self._execute_query(query, variables, self.stats_client)
-            return result['playerStatistics']
+            
+            if not result or 'teamStatistics' not in result:
+                return {}
+                
+            stats = result['teamStatistics']
+            
+            # Process and structure the statistics
+            processed_stats = {
+                'team_id': team_id,
+                'series_count': stats['series']['count'],
+                'game_count': stats['game']['count'],
+                'kills': {
+                    'total': stats['series']['kills']['sum'],
+                    'avg_per_series': stats['series']['kills']['avg'],
+                    'max_in_series': stats['series']['kills']['max'],
+                    'min_in_series': stats['series']['kills']['min']
+                },
+                'wins': {
+                    'count': stats['game']['wins']['count'],
+                    'percentage': stats['game']['wins']['percentage'],
+                    'current_streak': stats['game']['wins']['streak']['current'],
+                    'max_streak': stats['game']['wins']['streak']['max']
+                }
+            }
+            
+            # Process segment statistics
+            if 'segment' in stats:
+                processed_stats['segments'] = []
+                for segment in stats['segment']:
+                    segment_data = {
+                        'type': segment['type'],
+                        'count': segment['count'],
+                        'deaths': {
+                            'total': segment['deaths']['sum'],
+                            'avg': segment['deaths']['avg'],
+                            'max': segment['deaths']['max'],
+                            'min': segment['deaths']['min']
+                        }
+                    }
+                    processed_stats['segments'].append(segment_data)
+            
+            return processed_stats
+            
         except Exception as e:
-            self.logger.error(f"Error collecting statistics for player {player_id}: {str(e)}")
-            return None  # Return None if there's an error to handle it gracefully
+            self.logger.error(f"Error fetching team statistics for team {team_id}: {str(e)}")
+            return {}
+
+    def get_player_statistics(
+        self,
+        player_id: str,
+        time_window: Optional[str] = "LAST_3_MONTHS",
+        tournament_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive player statistics either by time window or tournament IDs.
+        
+        Args:
+            player_id (str): The ID of the player
+            time_window (str, optional): Time window for statistics
+            tournament_ids (List[str], optional): List of tournament IDs to filter by
+            
+        Returns:
+            Dict containing processed player statistics
+        """
+        query = self._load_query('player_statistics')
+        
+        # Build filter based on provided parameters
+        filter_dict = {}
+        if tournament_ids:
+            filter_dict['tournamentIds'] = {'in': tournament_ids}
+        elif time_window:
+            filter_dict['timeWindow'] = time_window
+            
+        variables = {
+            'playerId': player_id,
+            'filter': filter_dict
+        }
+        
+        try:
+            result = self._execute_query(query, variables, self.stats_client)
+            
+            if not result or 'playerStatistics' not in result:
+                return {}
+                
+            stats = result['playerStatistics']
+            
+            # Process and structure the statistics
+            processed_stats = {
+                'player_id': player_id,
+                'series_count': stats['series']['count'],
+                'game_count': stats['game']['count'],
+                'performance': {
+                    'kills': {
+                        'total': stats['series']['kills']['sum'],
+                        'avg_per_series': stats['series']['kills']['avg'],
+                        'max_in_series': stats['series']['kills']['max'],
+                        'min_in_series': stats['series']['kills']['min']
+                    },
+                    'wins': {
+                        'count': stats['game']['wins']['count'],
+                        'percentage': stats['game']['wins']['percentage'],
+                        'current_streak': stats['game']['wins']['streak']['current'],
+                        'max_streak': stats['game']['wins']['streak']['max']
+                    }
+                }
+            }
+            
+            # Add segment statistics if available
+            if 'segment' in stats:
+                processed_stats['segments'] = []
+                for segment in stats['segment']:
+                    segment_data = {
+                        'type': segment['type'],
+                        'count': segment['count'],
+                        'deaths': {
+                            'total': segment['deaths']['sum'],
+                            'avg': segment['deaths']['avg'],
+                            'max': segment['deaths']['max'],
+                            'min': segment['deaths']['min']
+                        }
+                    }
+                    processed_stats['segments'].append(segment_data)
+            
+            return processed_stats
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching player statistics for player {player_id}: {str(e)}")
+            return {}
+
+    def get_bulk_team_statistics(self, team_ids: List[str]) -> pd.DataFrame:
+        """
+        Get statistics for multiple teams and return as a DataFrame.
+        
+        Args:
+            team_ids (List[str]): List of team IDs to fetch statistics for
+            
+        Returns:
+            pd.DataFrame: DataFrame containing statistics for all teams
+        """
+        all_stats = []
+        for team_id in team_ids:
+            stats = self.get_team_statistics(team_id)
+            if stats:
+                # Flatten the nested dictionary for DataFrame compatibility
+                flat_stats = {
+                    'team_id': stats['team_id'],
+                    'series_count': stats['series_count'],
+                    'game_count': stats['game_count'],
+                    'total_kills': stats['kills']['total'],
+                    'avg_kills_per_series': stats['kills']['avg_per_series'],
+                    'win_count': stats['wins']['count'],
+                    'win_percentage': stats['wins']['percentage'],
+                    'current_win_streak': stats['wins']['current_streak'],
+                    'max_win_streak': stats['wins']['max_streak']
+                }
+                all_stats.append(flat_stats)
+                
+        return pd.DataFrame(all_stats)
+
+    def get_bulk_player_statistics(self, player_ids: List[str]) -> pd.DataFrame:
+        """
+        Get statistics for multiple players and return as a DataFrame.
+        
+        Args:
+            player_ids (List[str]): List of player IDs to fetch statistics for
+            
+        Returns:
+            pd.DataFrame: DataFrame containing statistics for all players
+        """
+        all_stats = []
+        for player_id in player_ids:
+            stats = self.get_player_statistics(player_id)
+            if stats:
+                # Flatten the nested dictionary for DataFrame compatibility
+                flat_stats = {
+                    'player_id': stats['player_id'],
+                    'series_count': stats['series_count'],
+                    'game_count': stats['game_count'],
+                    'total_kills': stats['performance']['kills']['total'],
+                    'avg_kills_per_series': stats['performance']['kills']['avg_per_series'],
+                    'win_count': stats['performance']['wins']['count'],
+                    'win_percentage': stats['performance']['wins']['percentage'],
+                    'current_win_streak': stats['performance']['wins']['current_streak'],
+                    'max_win_streak': stats['performance']['wins']['max_streak']
+                }
+                all_stats.append(flat_stats)
+                
+        return pd.DataFrame(all_stats)

@@ -1,7 +1,7 @@
 query PlayerStatistics($playerId: ID!, $filter: PlayerStatisticsFilter!) {
   playerStatistics(playerId: $playerId, filter: $filter) {
     id
-    game {
+    series {
       count
       kills {
         sum
@@ -15,40 +15,17 @@ query PlayerStatistics($playerId: ID!, $filter: PlayerStatisticsFilter!) {
         max
         avg
       }
-      killAssistsGiven {
-        sum
-        min
-        max
-        avg
-      }
-      # Use inline fragment for CS:GO-specific fields
-      ... on PlayerGameStatisticsCsgo {
-        damageDealt {
-          sum
-          min
-          max
-          avg
-        }
-        firstKill {
-          value
-          count
-          percentage
-        }
-        won {
-          value
-          count
-          percentage
-          streak {
-            min
-            max
-            current
-          }
-        }
-      }
     }
-    segment {
-      type
+    game {
       count
+      wins {
+        count
+        percentage
+        streak {
+          current
+          max
+        }
+      }
     }
   }
 }
