@@ -1,0 +1,25 @@
+query MatchPlayerStats($matchId: ID!, $playerId: ID!) {
+  match(id: $matchId) {
+    id
+    player(id: $playerId) {
+      id
+      nickname
+      statistics {
+        kills
+        deaths
+        assists
+        damage
+        rating
+        firstKills
+        clutchesWon
+        headshotPercentage
+        multiKills {
+          twoKills
+          threeKills
+          fourKills
+          fiveKills
+        }
+      }
+    }
+  }
+}

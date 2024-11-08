@@ -1,0 +1,31 @@
+query PlayerStatistics($playerId: ID!, $filter: PlayerStatisticsFilter!) {
+  playerStatistics(playerId: $playerId, filter: $filter) {
+    id
+    series {
+      count
+      kills {
+        sum
+        min
+        max
+        avg
+      }
+      deaths {
+        sum
+        min
+        max
+        avg
+      }
+    }
+    game {
+      count
+      wins {
+        count
+        percentage
+        streak {
+          current
+          max
+        }
+      }
+    }
+  }
+}

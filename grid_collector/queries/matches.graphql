@@ -1,0 +1,45 @@
+query GetRecentMatches($first: Int!, $after: Cursor) {
+  allSeries(
+    first: $first
+    after: $after
+    filter: {
+      startTimeScheduled: {
+        gte: "2024-10-30T14:00:00+00:00"
+        lte: "2024-11-06T14:00:00+00:00"
+      }
+    }
+    orderBy: StartTimeScheduled
+  ) {
+    totalCount
+    edges {
+      cursor
+      node {
+        id
+        title {
+          nameShortened
+        }
+        tournament {
+          nameShortened
+        }
+        startTimeScheduled
+        format {
+          name
+          nameShortened
+        }
+        teams {
+          baseInfo {
+            id
+            name
+          }
+          scoreAdvantage
+        }
+      }
+    }
+    pageInfo {
+      hasPreviousPage
+      hasNextPage
+      startCursor
+      endCursor
+    }
+  }
+}
