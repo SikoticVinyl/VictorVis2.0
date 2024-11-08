@@ -1,0 +1,27 @@
+query GetTournaments($first: Int!, $after: Cursor) {
+    tournaments(
+        first: $first,
+        after: $after
+    ) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            cursor
+            node {
+                id
+                name
+                nameShortened
+                startDate
+                endDate
+                private
+                titles {
+                    id
+                    name
+                }
+            }
+        }
+        totalCount
+    }
+}

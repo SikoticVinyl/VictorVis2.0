@@ -1,0 +1,23 @@
+query GetAllPlayers($first: Int!, $after: Cursor, $filter: PlayerFilter) {
+  players(first: $first, after: $after, filter: $filter) {
+    edges {
+      node {
+        id
+        nickname
+        title {
+          id
+          name
+        }
+        team {
+          id
+          name
+        }
+        private
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
