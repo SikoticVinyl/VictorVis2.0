@@ -40,3 +40,22 @@ data/*
 # Logs
 *.log
 ```
+
+# React/Next.js
+node_modules/
+.next/
+out/
+package-lock.json
+yarn.lock
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+build/
+*.pem
+
+# IDE/Editor specific
+.idea/
+*.swp
+*.swo
+.DS_Store
