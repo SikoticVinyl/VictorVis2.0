@@ -1,9 +1,10 @@
 import os
 import time
 import logging
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Union, Dict, List, Optional, Any
+
+import pandas as pd
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
