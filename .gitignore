@@ -26,12 +26,15 @@ wheels/
 .venv
 venv/
 ENV/
+*.env
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
 # VS Code
+.env
 .vscode/
+*.env
 
 # Data
 data/*
@@ -40,3 +43,4 @@ data/*
 # Logs
 *.log
 ```
+*.env
