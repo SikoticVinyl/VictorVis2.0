@@ -21,6 +21,9 @@ def combine_batch_files(pattern: str = 'player_stats_batch_*.csv', archive_batch
     Returns:
         Combined DataFrame
     """
+    # Get the path to the existing data directory
+    data_dir = os.path.join(os.path.dirname(os.getcwd()), 'data')
+    
     # Get list of all batch files
     batch_files = glob.glob(pattern)
     logger.info(f"Found {len(batch_files)} batch files to process")
@@ -70,15 +73,15 @@ def combine_batch_files(pattern: str = 'player_stats_batch_*.csv', archive_batch
         # Create DataFrame from all collected data
         final_df = pd.DataFrame(all_data)
         
-        # Save the combined file
+        # Save the combined file in the data directory
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-        output_file = f'combined_player_stats_{timestamp}.csv'
+        output_file = os.path.join(data_dir, f'combined_player_stats_{timestamp}.csv')
         final_df.to_csv(output_file, index=False)
         
         # Archive batch files if requested
         if archive_batches and processed_files:
-            # Create archive directory with timestamp
-            archive_dir = os.path.join('batches', f'batch_archive_{timestamp}')
+            # Create archive directory with timestamp in the data directory
+            archive_dir = os.path.join(data_dir, 'batches', f'batch_archive_{timestamp}')
             os.makedirs(archive_dir, exist_ok=True)
             
             # Move processed files to archive
