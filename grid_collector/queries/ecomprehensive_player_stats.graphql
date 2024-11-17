@@ -1,0 +1,141 @@
+query GetComprehensivePlayerStats($playerId: ID!, $filter: PlayerStatisticsFilter!) {
+  playerStatistics(playerId: $playerId, filter: $filter) {
+    id
+    aggregationSeriesIds
+    series {
+      count
+      kills {
+        sum
+        avg
+        max
+        min
+      }
+      deaths {
+        sum
+        avg
+        max
+        min
+      }
+      firstKill {
+        count
+        percentage
+      }
+    }
+    game {
+      count
+      ... on DefaultPlayerGameStatistics {
+        won {
+          count
+          percentage
+          streak {
+            current
+            max
+          }
+        }
+        money {
+          sum
+          avg
+          max
+        }
+        inventoryValue {
+          avg
+          max
+        }
+        netWorth {
+          avg
+          max
+        }
+        kills {
+          sum
+          avg
+        }
+        deaths {
+          sum
+          avg
+        }
+        unitKills {
+          unitName
+          count {
+            sum
+            avg
+          }
+        }
+      }
+      ... on PlayerGameStatisticsCs2 {
+        damageDealt {
+          sum
+          avg
+          max
+        }
+      }
+      ... on PlayerGameStatisticsCsgo {
+        damageDealt {
+          sum
+          avg
+          max
+        }
+      }
+      ... on PlayerGameStatisticsDota {
+        experiencePoints {
+          sum
+          avg
+          max
+        }
+      }
+      ... on PlayerGameStatisticsLol {
+        experiencePoints {
+          sum
+          avg
+          max
+        }
+        totalMoneyEarned {
+          sum
+          avg
+          max
+        }
+      }
+      ... on PlayerGameStatisticsR6 {
+        damageDealt {
+          sum
+          avg
+          max
+        }
+        healingDealt {
+          sum
+          avg
+        }
+        healingReceived {
+          sum
+          avg
+        }
+      }
+    }
+    segment {
+      type
+      count
+      kills {
+        sum
+        avg
+      }
+      deaths {
+        sum
+        avg
+      }
+      won {
+        count
+        percentage
+      }
+      objectives {
+        type
+        completionCount {
+          sum
+          avg
+        }
+        completedFirst {
+          count
+          percentage
+        }
+      }
+    }
+  }
+}

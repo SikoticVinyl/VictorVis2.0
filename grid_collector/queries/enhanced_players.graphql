@@ -1,0 +1,39 @@
+query GetEnhancedPlayerInfo($after: String) {
+  players(
+    first: 50
+    after: $after
+  ) {
+    edges {
+      node {
+        id
+        nickname
+        firstName
+        lastName
+        nationality
+        team {
+          id
+          name
+          shortName
+        }
+        title {
+          id
+          name
+          nameShortened
+        }
+        active
+        roles {
+          name
+          primary
+        }
+        statistics {
+          gamesPlayed
+          lastGameDate
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
