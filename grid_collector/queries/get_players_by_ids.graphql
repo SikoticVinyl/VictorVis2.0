@@ -1,0 +1,25 @@
+query GetPlayersByIds($playerIds: [ID!]) {
+  players(filter: { id: { in: $playerIds } }) {
+    edges {
+      node {
+        id
+        nickname
+        title {
+          id
+          name
+          shortName
+        }
+        team {
+          id
+          name
+          shortName
+        }
+        private
+        externalLinks {
+          id
+          provider
+        }
+      }
+    }
+  }
+}

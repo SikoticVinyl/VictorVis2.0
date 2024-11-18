@@ -771,3 +771,57 @@ class GridCollector:
         except Exception as e:
             self.logger.error(f"Error in bulk collection: {str(e)}")
             raise
+
+    def get_players_by_ids(self, player_ids: List[str]) -> pd.DataFrame:
+        """
+        Fetch player data for a list of player IDs using the central-data API.
+        
+        Args:
+            player_ids (List[str]): List of player IDs to fetch data for
+            
+        Returns:
+            pd.DataFrame: DataFrame containing player data
+        """
+        try:
+            # Execute query with player IDs
+            variables = {
+                "playerIds": player_ids
+            }
+            
+            result = self._execute_query(
+                self._load_query('players_by_ids'),
+                variables,
+                self.central_client  # Make sure to use central-data client
+            )
+            
+            if not result or 'players' not in result or 'edges' not in result['players']:
+                logging.error("No player data returned from API")
+                return pd.DataFrame()
+                
+            players_data = []
+            
+            for edge in result['players']['edges']:
+                player = edge['node']
+                player_info = {
+                    'player_id': player['id'],
+                    'nickname': player['nickname'],
+                    'title_id': player['title']['id'] if player.get('title') else None,
+                    'title_name': player['title']['name'] if player.get('title') else None,
+                    'title_short_name': player['title']['shortName'] if player.get('title') else None,
+                    'team_id': player['team']['id'] if player.get('team') else None,
+                    'team_name': player['team']['name'] if player.get('team') else None,
+                    'team_short_name': player['team']['shortName'] if player.get('team') else None,
+                    'private': player.get('private', False),
+                }
+                
+                # Add external links as separate columns
+                external_links = {link['provider']: link['id'] for link in player.get('externalLinks', [])}
+                player_info.update(external_links)
+                
+                players_data.append(player_info)
+            
+            return pd.DataFrame(players_data)
+            
+        except Exception as e:
+            logging.error(f"Error fetching player data: {str(e)}")
+            raise
