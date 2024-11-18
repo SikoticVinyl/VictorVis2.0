@@ -182,3 +182,26 @@ def extract_nested_stats(df: pd.DataFrame) -> pd.DataFrame:
         flat_data.append(flat_row)
     
     return pd.DataFrame(flat_data)
+
+def split_dataframe_by_title_id(df: pd.DataFrame) -> dict:
+    """
+    Splits the input DataFrame into separate DataFrames based on the title_id.
+    Each resulting DataFrame corresponds to a unique title_id found in the original DataFrame.
+
+    Args:
+        df (pd.DataFrame): The merged DataFrame containing player data across multiple games.
+
+    Returns:
+        dict: A dictionary where keys are title_ids and values are DataFrames corresponding to each title_id.
+    """
+    # Get a list of unique title IDs from the merged DataFrame
+    unique_title_ids = df['title_id'].unique()
+    
+    # Create a dictionary to store DataFrames for each title ID
+    title_dataframes = {}
+    
+    # Iterate through each unique title ID and create a separate DataFrame for each
+    for title_id in unique_title_ids:
+        title_dataframes[title_id] = df[df['title_id'] == title_id].reset_index(drop=True)
+    
+    return title_dataframes
