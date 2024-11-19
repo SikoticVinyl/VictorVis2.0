@@ -1,9 +1,10 @@
 import os
 import time
 import logging
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Union, Dict, List, Optional, Any
+
+import pandas as pd
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
@@ -45,13 +46,13 @@ class GridCollector:
             raise FileNotFoundError(f"Query file not found at: {query_path}")
 
     def _execute_query(self, query: str, variables: Dict[str, Any], client: Client) -> Dict[str, Any]:
-        """Execute a single query with rate limiting."""
+        """Execute a single query with rate limiting and error handling."""
         max_retries = 3
         retry_delay = 5  # seconds
         
         for attempt in range(max_retries):
             try:
-                # Wait for rate limit
+                # Wait for rate limit - This uses the RateLimiter from utils
                 self.rate_limiter.wait()
                 
                 # Execute query
@@ -67,6 +68,7 @@ class GridCollector:
                         self.logger.warning(f"Rate limit hit, waiting {wait_time} seconds before retry")
                         time.sleep(wait_time)
                         continue
+                # Use the error handler from utils
                 raise handle_api_error(e)
 
     def _execute_paginated_query(self, query: str, client: Client, variables: Dict = None, limit: int = None) -> List[Dict]:
@@ -261,17 +263,26 @@ class GridCollector:
             self.logger.error(f"Error fetching titles: {str(e)}")
             return pd.DataFrame()
 
-    def get_players(self, limit: int = None, title_id: str = '28') -> pd.DataFrame:
-        """Get players with specified fields, optionally limiting the number of players fetched."""
+    def get_players(self, limit: int = None, title_id: str = None) -> pd.DataFrame:
+        """
+        Get players with specified fields, optionally limiting the number of players fetched.
+        
+        Args:
+            limit (int, optional): Maximum number of players to fetch
+            title_id (str, optional): Filter by specific title ID. If None, gets players from all titles.
+            
+        Returns:
+            pd.DataFrame: DataFrame containing player information
+        """
         query = self._load_query('players')
         variables = {}
-        if title_id:
+        if title_id:  # Only add title filter if title_id is specified
             variables['filter'] = {'titleId': title_id}
-
+        
         try:
             # Get all player nodes, with optional limit
             players = self._execute_paginated_query(query, self.central_client, variables, limit=limit)
-
+            
             # Process players into a list of dictionaries
             processed_players = []
             for player in players:
@@ -284,11 +295,11 @@ class GridCollector:
                     'private': player.get('private', False)
                 }
                 processed_players.append(player_data)
-
+            
             # Convert to DataFrame
             df = pd.DataFrame(processed_players)
             return df
-
+            
         except Exception as e:
             self.logger.error(f"Error collecting player data: {str(e)}")
             raise
@@ -515,3 +526,248 @@ class GridCollector:
                 all_stats.append(flat_stats)
                 
         return pd.DataFrame(all_stats)
+    
+    def get_comprehensive_player_stats(self, player_id: str) -> Dict[str, Any]:
+        """
+        Get detailed player statistics including advanced metrics and game-specific stats.
+        
+        Args:
+            player_id (str): The ID of the player
+        
+        Returns:
+            Dict containing detailed player statistics
+        """
+        query = self._load_query('comprehensive_player_stats')
+        
+        variables = {
+            'playerId': player_id,
+            'filter': {
+                'timeWindow': 'LAST_3_MONTHS'
+            }
+        }
+        
+        try:
+            result = self._execute_query(query, variables, self.stats_client)
+            
+            if not result or 'playerStatistics' not in result:
+                return {}
+                
+            stats = result['playerStatistics']
+            game_stats = stats.get('game', {})
+            
+            # Base statistics structure
+            processed_stats = {
+                'player_id': player_id,
+                'general': {
+                    'series_played': stats['series']['count'],
+                    'games_played': game_stats.get('count', 0)
+                },
+                'combat': {
+                    'kills': {
+                        'total': stats['series']['kills']['sum'],
+                        'average': stats['series']['kills']['avg'],
+                        'best': stats['series']['kills']['max'],
+                        'worst': stats['series']['kills']['min']
+                    },
+                    'deaths': {
+                        'total': stats['series']['deaths']['sum'],
+                        'average': stats['series']['deaths']['avg'],
+                        'worst': stats['series']['deaths']['max'],
+                        'best': stats['series']['deaths']['min']
+                    },
+                    'first_kills': {
+                        'total': stats['series'].get('firstKill', [{}])[0].get('count', 0),
+                        'percentage': stats['series'].get('firstKill', [{}])[0].get('percentage', 0)
+                    }
+                },
+                'performance': {
+                    'wins': {
+                        'count': game_stats.get('won', [{}])[0].get('count', 0),
+                        'percentage': game_stats.get('won', [{}])[0].get('percentage', 0),
+                        'current_streak': game_stats.get('won', [{}])[0].get('streak', {}).get('current', 0),
+                        'max_streak': game_stats.get('won', [{}])[0].get('streak', {}).get('max', 0)
+                    }
+                },
+                'economy': {
+                    'net_worth': {
+                        'average': game_stats.get('netWorth', {}).get('avg', 0),
+                        'max': game_stats.get('netWorth', {}).get('max', 0)
+                    },
+                    'inventory_value': {
+                        'average': game_stats.get('inventoryValue', {}).get('avg', 0),
+                        'max': game_stats.get('inventoryValue', {}).get('max', 0)
+                    }
+                }
+            }
+            
+            # Add game-specific statistics
+            if 'damageDealt' in game_stats:  # CS2, CSGO, R6
+                processed_stats['combat']['damage'] = {
+                    'total': game_stats['damageDealt'].get('sum', 0),
+                    'average': game_stats['damageDealt'].get('avg', 0),
+                    'max': game_stats['damageDealt'].get('max', 0)
+                }
+            
+            # Add MOBA-specific stats (DOTA, LOL)
+            if 'experiencePoints' in game_stats:
+                processed_stats['progression'] = {
+                    'experience': {
+                        'total': game_stats['experiencePoints'].get('sum', 0),
+                        'average': game_stats['experiencePoints'].get('avg', 0),
+                        'max': game_stats['experiencePoints'].get('max', 0)
+                    }
+                }
+                
+            # Add LOL-specific stats
+            if 'totalMoneyEarned' in game_stats:
+                processed_stats['economy']['total_earned'] = {
+                    'total': game_stats['totalMoneyEarned'].get('sum', 0),
+                    'average': game_stats['totalMoneyEarned'].get('avg', 0),
+                    'max': game_stats['totalMoneyEarned'].get('max', 0)
+                }
+            
+            # Add R6-specific stats
+            if 'healingDealt' in game_stats:
+                processed_stats['support'] = {
+                    'healing_dealt': {
+                        'total': game_stats['healingDealt'].get('sum', 0),
+                        'average': game_stats['healingDealt'].get('avg', 0)
+                    },
+                    'healing_received': {
+                        'total': game_stats['healingReceived'].get('sum', 0),
+                        'average': game_stats['healingReceived'].get('avg', 0)
+                    }
+                }
+            
+            # Process unit kills if available
+            if 'unitKills' in game_stats:
+                processed_stats['combat']['unit_kills'] = {
+                    unit['unitName']: {
+                        'count': unit['count'].get('sum', 0),
+                        'average': unit['count'].get('avg', 0)
+                    }
+                    for unit in game_stats.get('unitKills', [])
+                }
+            
+            # Segment processing
+            if 'segment' in stats:
+                processed_stats['segments'] = []
+                for segment in stats['segment']:
+                    segment_data = {
+                        'type': segment['type'],
+                        'count': segment['count'],
+                        'combat': {
+                            'kills': {
+                                'total': segment['kills']['sum'],
+                                'average': segment['kills']['avg']
+                            },
+                            'deaths': {
+                                'total': segment['deaths']['sum'],
+                                'average': segment['deaths']['avg']
+                            }
+                        },
+                        'objectives': [],
+                        'win_rate': segment['won'][0]['percentage'] if segment.get('won') else 0
+                    }
+                    
+                    if 'objectives' in segment:
+                        for objective in segment['objectives']:
+                            obj_data = {
+                                'type': objective['type'],
+                                'completions': objective['completionCount']['sum'],
+                                'avg_completions': objective['completionCount']['avg'],
+                                'first_completions': {
+                                    'count': objective.get('completedFirst', [{}])[0].get('count', 0),
+                                    'percentage': objective.get('completedFirst', [{}])[0].get('percentage', 0)
+                                }
+                            }
+                            segment_data['objectives'].append(obj_data)
+                    
+                    processed_stats['segments'].append(segment_data)
+            
+            return processed_stats
+                
+        except Exception as e:
+            self.logger.error(f"Error fetching comprehensive stats for player {player_id}: {str(e)}")
+            return {}
+
+    def collect_bulk_comprehensive_stats(self, 
+                                    player_ids: Optional[List[str]] = None,
+                                    batch_size: int = 50,
+                                    save_intermediate: bool = True) -> pd.DataFrame:
+        """
+        Collect comprehensive statistics for multiple players with batching and save points.
+        
+        Args:
+            player_ids: List of player IDs to collect stats for. If None, gets all players.
+            batch_size: Number of players to process in each batch
+            save_intermediate: Whether to save intermediate results
+            
+        Returns:
+            DataFrame containing comprehensive statistics for all processed players
+        """
+        try:
+            # If no player_ids provided, get all players
+            if player_ids is None:
+                players_df = self.get_players()
+                player_ids = players_df['id'].tolist()
+            
+            total_players = len(player_ids)
+            self.logger.info(f"Preparing to collect stats for {total_players} players")
+            
+            all_stats = []
+            
+            # Process in batches
+            for i in range(0, total_players, batch_size):
+                batch_ids = player_ids[i:i + batch_size]
+                self.logger.info(f"Processing batch {i//batch_size + 1} of {(total_players + batch_size - 1)//batch_size}")
+                
+                batch_stats = []
+                for player_id in batch_ids:
+                    try:
+                        # Use your existing rate limiter
+                        self.rate_limiter.wait()
+                        
+                        stats = self.get_comprehensive_player_stats(player_id)
+                        if stats:
+                            batch_stats.append(stats)
+                            
+                    except Exception as e:
+                        self.logger.warning(f"Error processing player {player_id}: {str(e)}")
+                        continue
+                
+                all_stats.extend(batch_stats)
+                
+                # Save intermediate results if requested
+                if save_intermediate and batch_stats:
+                    batch_df = pd.DataFrame(batch_stats)
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+                    batch_df.to_csv(f'player_stats_batch_{i//batch_size}_{timestamp}.csv', index=False)
+                    
+                    self.logger.info(f"Saved batch {i//batch_size + 1} results - {len(batch_stats)} players processed")
+            
+            # Create final DataFrame
+            if all_stats:
+                final_df = pd.DataFrame(all_stats)
+                
+                # Add some derived statistics
+                if 'combat' in final_df.columns:
+                    final_df['kd_ratio'] = final_df['combat'].apply(
+                        lambda x: x['kills']['total'] / x['deaths']['total'] 
+                        if x['deaths']['total'] > 0 else x['kills']['total']
+                    )
+                    
+                    final_df['avg_damage_per_game'] = final_df.apply(
+                        lambda x: x['combat']['damage']['total'] / x['general']['games_played']
+                        if x['general']['games_played'] > 0 else 0,
+                        axis=1
+                    )
+                
+                return final_df
+            else:
+                self.logger.warning("No valid statistics were collected")
+                return pd.DataFrame()
+                
+        except Exception as e:
+            self.logger.error(f"Error in bulk collection: {str(e)}")
+            raise
