@@ -1,0 +1,8 @@
+query GetTitles($filter: TitleFilter) {
+  titles(filter: $filter) {
+    id
+    name
+    nameShortened
+    private
+  }
+}
