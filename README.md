@@ -1,8 +1,16 @@
-# VictorVis2.0# Halo Stats Analyzer
+# VictorVis2.0
+> Victory Vision is a passion project with the goal to determine whether or not it is logically possible to predict who would win in a match between two players, or two teams in general. The first variation of VictorVis focused on team statistics altogether, this variation mostly focuses strictly on individual players compared to other players.
+>With Access to two new APIs, we no longer had to scrape data from different statistics websites.
+>- Halo API
+>- GRID API
+
+>[VictorVis](https://github.com/SikoticVinyl/VictorVis)
+
+## Halo Stats Analyzer
 
 This project analyzes Halo 5 player statistics using the official Halo API and machine learning to predict match outcomes and analyze player performance.
 
-## Setup
+### Setup
 
 1. Clone the repository:
 ```bash
@@ -23,7 +31,7 @@ pip install -r requirements.txt
      ```
    - Or pass it directly when initializing the analyzer
 
-## Usage
+### Usage
 
 ```python
 from app import HaloStatsAnalyzer
@@ -38,7 +46,7 @@ history, X_test, y_test = analyzer.analyze_player('PlayerGamertag')
 analyzer.plot_training_history(history)
 ```
 
-## Features
+### Features
 
 - Fetches player match history from Halo 5 API
 - Processes match data into meaningful features
@@ -46,7 +54,7 @@ analyzer.plot_training_history(history)
 - Visualizes training metrics and player performance
 - Supports custom analysis parameters
 
-## Requirements
+### Requirements
 
 - Python 3.8+
 - TensorFlow 2.x
@@ -56,7 +64,7 @@ analyzer.plot_training_history(history)
 - Requests
 - Scikit-learn
 
-## Contributing
+### Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
@@ -64,11 +72,42 @@ analyzer.plot_training_history(history)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## License
+### License
 
 This project is licensed under the MIT License - see the LICENSE file for details
 
-## Acknowledgments
+### Acknowledgments
 
 - Halo API documentation and team
 - TensorFlow and scikit-learn communities
+
+## GRID API Statistic Analyses
+
+This portion of the project focuses on different competitive Video Games with data held in the vast library of GRID API.
+There were two variations of use for this API explored by two members of the production team.
+
+1) Shayne - CS2 player stats 
+2) Dana - Comprehensive [Enter Information Here]
+
+### Achieved Objectives
+- Accessing GRID API
+- Retrieving Data/CSV files
+
+**Shayne**
+- Cleaning the CS2 player stats
+- Feature Selection
+- Model Creation
+    - XGBoostRegressor + Neural Network
+    - XGBoostRegressor (Best Choice)
+- Model Optimization
+**Dana**
+
+### Utilized Tools
+- Python
+- Pandas
+- XGBoostRegressor
+- StandardScaler
+- OneHotEncoder/LabelEncoder(?)
+- train_test_split
+- Neural Networks
+- **And Many More**
