@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split, cross_val_score, KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import xgboost as xgb
 import lightgbm as lgb
+from lightgbm.callback import early_stopping, log_evaluation
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -83,15 +84,18 @@ class GridModelTrainer:
     
     def build_lightgbm(self) -> lgb.LGBMRegressor:
         """
-        LightGBM configuration based on game type
+        LightGBM configuration with fully aligned feature and bagging fractions
         """
         if self.game_type == 'cs2':
             return lgb.LGBMRegressor(
                 n_estimators=200,
                 num_leaves=31,
                 learning_rate=0.1,
-                feature_fraction=0.8,
-                bagging_fraction=0.8,
+                feature_fraction=0.6,  # Randomly use 60% of features for each tree
+                bagging_fraction=0.8,  # Use 80% of data rows per iteration
+                bagging_freq=5,        # Re-sample every 5 iterations
+                colsample_bytree=None,  # Ensure colsample_bytree doesn't interfere
+                subsample_freq=None,         # Ensure subsample doesn't interfere
                 random_state=42
             )
         else:
@@ -99,12 +103,15 @@ class GridModelTrainer:
                 n_estimators=100,
                 num_leaves=15,
                 learning_rate=0.05,
-                feature_fraction=0.8,
-                bagging_fraction=0.8,
+                feature_fraction=0.5,
+                bagging_fraction=0.7,
+                bagging_freq=5,
+                colsample_bytree=None,  # Explicitly nullify to avoid warnings
+                subsample_freq=None,
                 min_child_samples=5,
                 random_state=42
             )
-    
+
     def train_model(
         self, 
         X_train: np.ndarray, 
@@ -120,7 +127,6 @@ class GridModelTrainer:
         if model_type == 'neural_network':
             model = self.build_neural_network(X_train.shape[1])
             
-            # Add learning rate reduction
             reduce_lr = ReduceLROnPlateau(
                 monitor='val_loss',
                 factor=0.2,
@@ -134,7 +140,6 @@ class GridModelTrainer:
                 restore_best_weights=True
             )
             
-            # Use different batch sizes based on dataset size
             batch_size = 32 if self.game_type == 'cs2' else 16
             
             history = model.fit(
@@ -148,12 +153,11 @@ class GridModelTrainer:
             
             self.histories[model_type] = history.history
             predictions = model.predict(X_test)
-            
+
         elif model_type == 'xgboost':
             model = self.build_xgboost()
             
             if self.game_type == 'dota':
-                # Use cross-validation for smaller dataset
                 cv_scores = cross_val_score(
                     model, X_train, y_train,
                     cv=5,
@@ -164,17 +168,44 @@ class GridModelTrainer:
                     'std_cv_mse': cv_scores.std()
                 }
             
-            model.fit(
-                X_train, y_train,
-                eval_set=[(X_test, y_test)],
+            # Convert data to DMatrix format for XGBoost
+            dtrain = xgb.DMatrix(X_train, label=y_train)
+            dtest = xgb.DMatrix(X_test, label=y_test)
+            
+            # Set up evaluation list
+            evals = [(dtrain, 'train'), (dtest, 'eval')]
+            
+            # Set up parameters
+            params = {
+                'objective': 'reg:squarederror',
+                'eval_metric': 'rmse',
+                'max_depth': 6 if self.game_type == 'cs2' else 4,
+                'learning_rate': 0.1 if self.game_type == 'cs2' else 0.05,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'min_child_weight': 1 if self.game_type == 'cs2' else 3
+            }
+            
+            # Train model with early stopping
+            num_round = 1000  # Maximum number of rounds
+            model = xgb.train(
+                params,
+                dtrain,
+                num_round,
+                evals=evals,
                 early_stopping_rounds=10,
-                verbose=False
+                verbose_eval=False
             )
             
-            predictions = model.predict(X_test)
+            # Use best model for predictions
+            predictions = model.predict(dtest)
+            
+            # Store feature importance
+            importance_scores = model.get_score(importance_type='gain')
+            importances = [importance_scores.get(f'f{i}', 0) for i in range(len(feature_names))]
             self.feature_importance[model_type] = pd.DataFrame({
                 'feature': feature_names,
-                'importance': model.feature_importances_
+                'importance': importances
             }).sort_values('importance', ascending=False)
             
         else:  # lightgbm
@@ -191,11 +222,14 @@ class GridModelTrainer:
                     'std_cv_mse': cv_scores.std()
                 }
             
+            # Fit model with early stopping callback
             model.fit(
                 X_train, y_train,
                 eval_set=[(X_test, y_test)],
-                early_stopping_rounds=10,
-                verbose=False
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=10, verbose=True),  # Correct callback invocation
+                    lgb.log_evaluation(period=10)  # log callback for evaluation updates
+                ]
             )
             
             predictions = model.predict(X_test)
@@ -211,6 +245,11 @@ class GridModelTrainer:
             'r2': r2_score(y_test, predictions),
             'rmse': np.sqrt(mean_squared_error(y_test, predictions))
         }
+        
+        # Store best score for XGBoost
+        if model_type == 'xgboost':
+            metrics['best_score'] = model.best_score
+            metrics['best_iteration'] = model.best_iteration
         
         self.models[model_type] = model
         self.metrics[model_type] = metrics
